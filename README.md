@@ -3,8 +3,9 @@
 Modular status bar for dwm written in c.
 
 ## My build
-very little modifications:
-- now blocks doesn't dissapear on fast scrolling
+Very little modifications:
+- Now blocks doesn't dissapear on fast scrolling
+- No need for icons
 
 # Modifying blocks
 
