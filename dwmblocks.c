@@ -47,8 +47,10 @@ void replace(char *str, char old, char new)
 			*c = new;
 }
 
-// the previous function looked nice but unfortunately it didnt work if to_remove was in any position other than the last character
-// theres probably still a better way of doing this
+/* the previous function looked nice but unfortunately it
+ * didnt work if to_remove was in any position other than the
+ * last character theres probably still a better way of doing this
+ */
 void remove_all(char *str, char to_remove) {
 	char *read = str;
 	char *write = str;
@@ -56,8 +58,7 @@ void remove_all(char *str, char to_remove) {
 		while (*read == to_remove) read++;
 		*write++ = *read;
 		read++;
-	}
-	while (*(read-1));
+	} while (*(read-1));
 }
 
 int gcd(int a, int b)
@@ -103,8 +104,7 @@ void getcmd(const Block *block, char *output)
 		errno = 0;
 		s = fgets(tmpstr, CMDLENGTH-(strlen(delim)+1), cmdf);
 		e = errno;
-	}
-	while (!s && e == EINTR);
+	} while (!s && e == EINTR);
 	pclose(cmdf);
 
 	//int i = strlen(block->icon);
@@ -199,7 +199,6 @@ void pstdout()
 	/* Only write out if text has changed. */
 	if (!getstatus(statusstr[0], statusstr[1]))
 		return;
-
 	printf("%s\n", statusstr[0]);
 	fflush(stdout);
 }
