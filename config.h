@@ -16,8 +16,6 @@ static const Block blocks[] = {
 	{ "sb-moonphase",			18000,		17},
 //	{ "sb-mailbox",				180,		12},
 //	{ "sb-nettraf",				1,		16},
-	{ "sb-battery",				10,		7},
-	{ "sb-clock",				60,		1},
 //	{ "sb-internet",			5,		4},
 //	{ "sb-help-icon",			0,		15},
 //	{ "sb-crypto",				0,		13},
@@ -30,6 +28,9 @@ static const Block blocks[] = {
 //	{ "sb-price xmr \"Monero\" 🔒",		9000,		24},
 //	{ "sb-price eth Ethereum 🍸",		9000,		23},
 //	{ "sb-price btc Bitcoin 💰",		9000,		21},
+	{ "sb-battery",				10,		7},
+	{ "sb-disk",				9000,		29},
+	{ "sb-clock",				60,		1},
 };
 /* Sets delimiter between status commands. NULL character ('\0') means no delimiter */
 static char *delim = " ";

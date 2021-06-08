@@ -173,8 +173,8 @@ int getstatus(char *str, char *last)
 	str[0] = '\0';
 	for(int i = 0; i < LENGTH(blocks); i++) {
 		strcat(str, statusbar[i]);
-        if (i == LENGTH(blocks) - 1)
-            strcat(str, " ");
+        	if (i == LENGTH(blocks) - 1)
+			strcat(str, " ");
 	}
 	str[strlen(str)-1] = '\0';
 	return strcmp(str, last); /* 0 if they are the same */
@@ -186,8 +186,9 @@ void setroot()
 	if (!getstatus(statusstr[0], statusstr[1]))
 		return;
 	Display *d = XOpenDisplay(NULL);
-	if (d)
-		dpy = d;
+
+	if (d) dpy = d;
+
 	screen = DefaultScreen(dpy);
 	root = RootWindow(dpy, screen);
 	XStoreName(dpy, root, statusstr[0]);
