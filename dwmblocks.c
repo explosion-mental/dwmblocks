@@ -47,10 +47,11 @@ void replace(char *str, char old, char new)
 			*c = new;
 }
 
-/* the previous function looked nice but unfortunately it
- * didnt work if to_remove was in any position other than the
- * last character theres probably still a better way of doing this
+/* the previous function looked nice but unfortunately it didnt work if
+ * to_remove was in any position other than the last character theres probably
+ * still a better way of doing this
  */
+
 void remove_all(char *str, char to_remove) {
 	char *read = str;
 	char *write = str;
@@ -86,17 +87,18 @@ void getcmd(const Block *block, char *output)
 		return;
         //printf("failed to run: %s, %d\n", block->command, errno);
 	//}
-/* TODO decide whether its better to use the last value till next time
- * or just keep trying while the error was the interrupt his keeps
- * trying to read if it got nothing and the error was an interrupt could
- * also just read to a separate buffer and not move the data over if
- * interrupted this way will take longer trying to complete 1 thing but
- * will get it done. The other way will move on to keep going with
- * everything and the part that failed to read will be wrong till its
- * updated again either way you have to save the data to a temp buffer
- * because when it fails it writes nothing and then then it gets displayed
- * before this finishes
+
+/* TODO decide whether its better to use the last value till next time or just
+ * keep trying while the error was the interrupt his keeps trying to read if it
+ * got nothing and the error was an interrupt could also just read to a
+ * separate buffer and not move the data over if interrupted this way will take
+ * longer trying to complete 1 thing but will get it done. The other way will
+ * move on to keep going with everything and the part that failed to read will
+ * be wrong till its updated again either way you have to save the data to a
+ * temp buffer because when it fails it writes nothing and then then it gets
+ * displayed before this finishes
  */
+
 	char tmpstr[CMDLENGTH] = "";
 	char * s;
 	int e;

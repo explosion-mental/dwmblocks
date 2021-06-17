@@ -7,6 +7,9 @@ Very little modifications:
 - Now blocks doesn't dissapear on fast scrolling
 - No need for icons
 
+### Little Todo
+- Make config.h 'block' struct reverse so the first entry is the last (a way better arrange imo)
+
 # Modifying blocks
 
 The statusbar is made from text output from commandline programs.  Blocks are
