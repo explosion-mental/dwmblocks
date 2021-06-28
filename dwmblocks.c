@@ -6,15 +6,16 @@
 #include <signal.h>
 #include <errno.h>
 #include <X11/Xlib.h>
-#define LENGTH(X) (sizeof(X) / sizeof (X[0]))
+#define LENGTH(X)	(sizeof(X) / sizeof (X[0]))
 #define CMDLENGTH		50
 
 typedef struct {
-//	char* icon;
-	char* command;
+//	char *icon;
+	char *command;
 	unsigned int interval;
 	unsigned int signal;
 } Block;
+
 void sighandler(int num);
 void buttonhandler(int sig, siginfo_t *si, void *ucontext);
 void replace(char *str, char old, char new);
@@ -40,7 +41,26 @@ static char statusstr[2][256];
 static int statusContinue = 1;
 static void (*writestatus) () = setroot;
 
-void replace(char *str, char old, char new)
+//void ArrayReverese(int size)
+//{
+////	int Temp, Start, End;
+//	Start = 0;
+//	End = size -1
+//	while (Start < End) {
+//		Temp = a[Start];
+//		a[Start] = a[End];
+//		a[End] = Temp;
+//		Start++;
+//		End--;
+//	}
+////	int a, b, i, j;
+////	for(i = size-1, j = 0; i >= 0; i--, j++) {
+////		b[j] = a[i];
+////	}
+//}
+
+void
+replace(char *str, char old, char new)
 {
 	for(char * c = str; *c; c++)
 		if(*c == old)
@@ -51,8 +71,8 @@ void replace(char *str, char old, char new)
  * to_remove was in any position other than the last character theres probably
  * still a better way of doing this
  */
-
-void remove_all(char *str, char to_remove) {
+void
+remove_all(char *str, char to_remove) {
 	char *read = str;
 	char *write = str;
 	do {
@@ -62,7 +82,8 @@ void remove_all(char *str, char to_remove) {
 	} while (*(read-1));
 }
 
-int gcd(int a, int b)
+int
+gcd(int a, int b)
 {
 	int temp;
 	while (b > 0) {
@@ -75,7 +96,8 @@ int gcd(int a, int b)
 }
 
 /* opens process *cmd and stores output in *output */
-void getcmd(const Block *block, char *output)
+void
+getcmd(const Block *block, char *output)
 {
 	if (block->signal) {
 		output[0] = block->signal;
@@ -98,7 +120,6 @@ void getcmd(const Block *block, char *output)
  * temp buffer because when it fails it writes nothing and then then it gets
  * displayed before this finishes
  */
-
 	char tmpstr[CMDLENGTH] = "";
 	char * s;
 	int e;
@@ -122,10 +143,11 @@ void getcmd(const Block *block, char *output)
 	output[i++] = '\0';
 }
 
-void getcmds(int time)
+void
+getcmds(int time)
 {
 	const Block* current;
-	for(int i = 0; i < LENGTH(blocks); i++) {
+	for (int i = 0; i < LENGTH(blocks); i++) {
 		current = blocks + i;
 		if ((current->interval != 0 && time % current->interval == 0) || time == -1) {
 			getcmd(current,statusbar[i]);
@@ -134,7 +156,8 @@ void getcmds(int time)
 }
 
 #ifndef __OpenBSD__
-void getsigcmds(int signal)
+void
+getsigcmds(int signal)
 {
 	const Block *current;
 	for (int i = 0; i < LENGTH(blocks); i++) {
@@ -144,14 +167,16 @@ void getsigcmds(int signal)
 	}
 }
 
-void setupsignals()
+void
+setupsignals()
 {
 	struct sigaction sa;
+	int i;
 
-	for(int i = SIGRTMIN; i <= SIGRTMAX; i++)
+	for (i = SIGRTMIN; i <= SIGRTMAX; i++)
 		signal(i, SIG_IGN);
 
-	for(int i = 0; i < LENGTH(blocks); i++) {
+	for (i = 0; i < LENGTH(blocks); i++) {
 		if (blocks[i].signal > 0) {
 			signal(SIGRTMIN+blocks[i].signal, sighandler);
 			sigaddset(&sa.sa_mask, SIGRTMIN+blocks[i].signal);
@@ -169,7 +194,8 @@ void setupsignals()
 }
 #endif
 
-int getstatus(char *str, char *last)
+int
+getstatus(char *str, char *last)
 {
 	strcpy(last, str);
 	str[0] = '\0';
@@ -182,7 +208,8 @@ int getstatus(char *str, char *last)
 	return strcmp(str, last); /* 0 if they are the same */
 }
 
-void setroot()
+void
+setroot()
 {
 	/* Only set root if text has changed. */
 	if (!getstatus(statusstr[0], statusstr[1]))
@@ -197,7 +224,8 @@ void setroot()
 	XCloseDisplay(dpy);
 }
 
-void pstdout()
+void
+pstdout()
 {
 	/* Only write out if text has changed. */
 	if (!getstatus(statusstr[0], statusstr[1]))
@@ -207,7 +235,8 @@ void pstdout()
 }
 
 
-void statusloop()
+void
+statusloop()
 {
 #ifndef __OpenBSD__
 	setupsignals();
@@ -256,13 +285,15 @@ void statusloop()
 }
 
 #ifndef __OpenBSD__
-void sighandler(int signum)
+void
+sighandler(int signum)
 {
 	getsigcmds(signum-SIGRTMIN);
 	writestatus();
 }
 
-void buttonhandler(int sig, siginfo_t *si, void *ucontext)
+void
+buttonhandler(int sig, siginfo_t *si, void *ucontext)
 {
 	char button[2] = {'0' + si->si_value.sival_int & 0xff, '\0'};
 	pid_t process_id = getpid();
@@ -277,7 +308,8 @@ void buttonhandler(int sig, siginfo_t *si, void *ucontext)
 		}
 		char shcmd[1024];
 		sprintf(shcmd,"%s && kill -%d %d",current->command, current->signal+34,process_id);
-		char *command[] = { "/bin/sh", "-c", shcmd, NULL };
+		//char *command[] = { "/bin/sh", "-c", shcmd, NULL };
+		char *command[] = { "/bin/dash", "-c", shcmd, NULL };
 		//char *command[] = { "/bin/env", shcmd, NULL };
 		setenv("BLOCK_BUTTON", button, 1);
 		setsid();
@@ -288,15 +320,27 @@ void buttonhandler(int sig, siginfo_t *si, void *ucontext)
 
 #endif
 
-void termhandler(int signum)
+void
+termhandler(int signum)
 {
 	statusContinue = 0;
 	exit(0);
 }
 
-int main(int argc, char** argv)
+int
+main(int argc, char** argv)
 {
-	for(int i = 0; i < argc; i++) {
+	if (argc == 2 && !strcmp("-h", argv[1])) {
+		puts("dwmblocks:");
+		puts("\t-d <delimiter>\tUses a custom delimeter");
+		puts("\t-p\t\tPrints to stdout");
+		puts("\t-h\t\tShows this help");
+		exit(0);
+	} else if (argc != 1) {
+		puts("usage: dwmblocks [-h]");
+		exit(0);
+	}
+	for (int i = 0; i < argc; i++) {
 		if (!strcmp("-d",argv[i]))
 			delim = argv[++i];
 		else if (!strcmp("-p",argv[i]))
@@ -306,4 +350,6 @@ int main(int argc, char** argv)
 	signal(SIGTERM, termhandler);
 	signal(SIGINT,  termhandler);
 	statusloop();
+
+	return 0;
 }
