@@ -3,10 +3,10 @@
 PREFIX = /usr/local
 CC = gcc
 
-dwmblocks: dwmblocks.o
-	$(CC) dwmblocks.o -lX11 -o dwmblocks
-dwmblocks.o: dwmblocks.c config.h
-	$(CC) -c dwmblocks.c
+dwmblocks: main.o
+	$(CC) main.o -lX11 -Ofast -o dwmblocks
+main.o: main.c config.h
+	$(CC) -Ofast -c main.c
 clean:
 	rm -f *.o *.gch dwmblocks
 install: dwmblocks
