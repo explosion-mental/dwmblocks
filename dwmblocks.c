@@ -7,11 +7,11 @@
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
 #include <time.h>
+#include <wait.h>
 #include <unistd.h>
 
 #define POLL_INTERVAL 50
 #define LEN(arr) (sizeof(arr) / sizeof(arr[0]))
-#define BLOCK(cmd, interval, signal) {"echo \"$(" cmd ")\"", interval, signal},
 
 typedef struct {
 	const char *command;
@@ -25,12 +25,12 @@ static Display *dpy;
 static int screen;
 static Window root;
 
-static char outputs[LEN(blocks)][CMDLENGTH + 1 + CLICKABLE_BLOCKS];
+static char outputs[LEN(blocks)][CMDLENGTH + 1];
 static char statusBar[2][LEN(blocks) * ((LEN(outputs[0]) - 1) + (LEN(delimiter) - 1)) + 1];
 static struct epoll_event event, events[LEN(blocks) + 2];
 static int pipes[LEN(blocks)][2];
 
-static int timerPipe[2];
+static int timer[2];
 static int signalFD;
 static int epollFD;
 
@@ -47,13 +47,6 @@ gcd(int a, int b)
 		b = tmp;
 	}
 	return a;
-}
-
-void
-closePipe(int *pipe)
-{
-	close(pipe[0]);
-	close(pipe[1]);
 }
 
 void
@@ -74,7 +67,11 @@ void
 execBlocks(unsigned long long int time)
 {
 	int i;
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--)
+#else
 	for (i = 0; i < LEN(blocks); i++)
+#endif /* INVERSED */
 		if (time == 0 || (blocks[i].interval != 0 && time % blocks[i].interval == 0))
 			execBlock(i, NULL);
 }
@@ -82,10 +79,15 @@ execBlocks(unsigned long long int time)
 int
 getStatus(char *new, char *old)
 {
+	int i;
 	strcpy(old, new);
 	new[0] = '\0';
 
-	for (int i = 0; i < LEN(blocks); i++) {
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--) {
+#else
+	for (i = 0; i < LEN(blocks); i++) {
+#endif /* INVERSED */
 #ifdef LEADING_DELIMITER
 		if (strlen(outputs[i]))
 #else
@@ -100,7 +102,7 @@ getStatus(char *new, char *old)
 void
 updateBlock(int i)
 {
-	char* output = outputs[i];
+	char *output = outputs[i];
 	char buffer[LEN(outputs[0])];
 	int bytesRead = read(pipes[i][0], buffer, LEN(buffer));
 	buffer[bytesRead - 1] = '\0';
@@ -108,19 +110,16 @@ updateBlock(int i)
 	if (bytesRead == LEN(buffer)) {
 		// Clear the pipe
 		char ch;
-		while (read(pipes[i][0], &ch, 1) == 1 && ch != '\n')
-			;
+		while (read(pipes[i][0], &ch, 1) == 1 && ch != '\n');
 	} else if (bytesRead == 1) {
 		output[0] = '\0';
 		return;
 	}
 
-#if CLICKABLE_BLOCKS
-	if (blocks[i].signal > 0) {
+	if (clickable && blocks[i].signal > 0) {
 		output[0] = blocks[i].signal;
 		output++;
 	}
-#endif
 
 	strcpy(output, buffer);
 }
@@ -150,13 +149,18 @@ setroot(void)
 void
 signalHandler()
 {
+	int i;
 	struct signalfd_siginfo info;
 	read(signalFD, &info, sizeof(info));
 
-	for (int j = 0; j < LEN(blocks); j++) {
-		if (blocks[j].signal == info.ssi_signo - SIGRTMIN) {
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--) {
+#else
+	for (i = 0; i < LEN(blocks); i++) {
+#endif /* INVERSED */
+		if (blocks[i].signal == info.ssi_signo - SIGRTMIN) {
 			char button[] = {'0' + info.ssi_int & 0xff, 0};
-			execBlock(j, button);
+			execBlock(i, button);
 			break;
 		}
 	}
@@ -173,6 +177,16 @@ quit(int unused)
 }
 
 static void
+sigchld(int unused)
+{
+	if (signal(SIGCHLD, sigchld) == SIG_ERR) {
+		fprintf(stderr, "can't install SIGCHLD handler:");
+		exit(1);
+	}
+	while (0 < waitpid(-1, NULL, WNOHANG));
+}
+
+static void
 setup()
 {
 	int i;
@@ -180,32 +194,39 @@ setup()
 	epollFD = epoll_create(LEN(blocks) + 1);
 	event.events = EPOLLIN;
 
+	/* init pipes */
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--) {
+#else
 	for (i = 0; i < LEN(blocks); i++) {
+#endif /* INVERSED */
 		pipe(pipes[i]);
 		event.data.u32 = i;
 		epoll_ctl(epollFD, EPOLL_CTL_ADD, pipes[i][0], &event);
 	}
 
-	pipe(timerPipe);
+	/* timer pipe */
+	pipe(timer);
 	event.data.u32 = LEN(blocks);
-	epoll_ctl(epollFD, EPOLL_CTL_ADD, timerPipe[0], &event);
+	epoll_ctl(epollFD, EPOLL_CTL_ADD, timer[0], &event);
+
+	/* clean up any zombies immediately */
+	sigchld(0);
 
 	signal(SIGTERM, quit);
 	signal(SIGINT, quit);
 
-	// Avoid zombie subprocesses
-	struct sigaction sa;
-	sa.sa_handler = SIG_DFL;
-	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_NOCLDWAIT;
-	sigaction(SIGCHLD, &sa, 0);
-
 	// Handle block update signals
 	sigset_t sigset;
 	sigemptyset(&sigset);
-	for (int i = 0; i < LEN(blocks); i++)
-		if (blocks[i].signal > 0)
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--)
+#else
+	for (i = 0; i < LEN(blocks); i++)
+#endif /* INVERSED */
+		if (blocks[i].signal > 0) {
 			sigaddset(&sigset, SIGRTMIN + blocks[i].signal);
+		}
 
 	signalFD = signalfd(-1, &sigset, 0);
 	fcntl(signalFD, F_SETFL, O_NONBLOCK);
@@ -217,6 +238,7 @@ setup()
 void
 run(void)
 {
+	unsigned long long int j;
 	execBlocks(0);
 
 	while (running) {
@@ -226,8 +248,8 @@ run(void)
 			unsigned int id = events[i].data.u32;
 
 			if (id == LEN(blocks)) {
-				unsigned long long int j = 0;
-				read(timerPipe[0], &j, sizeof(j));
+				j = 0;
+				read(timer[0], &j, sizeof(j));
 				execBlocks(j);
 			} else if (id < LEN(blocks)) {
 				updateBlock(events[i].data.u32);
@@ -235,6 +257,7 @@ run(void)
 				signalHandler();
 			}
 		}
+
 		if (eventCount)
 			setroot();
 
@@ -247,46 +270,51 @@ run(void)
 void
 timerLoop()
 {
-	close(timerPipe[0]);
+	int j;
+	close(timer[0]);
 
 	unsigned int sleepInterval = -1;
-	for (int i = 0; i < LEN(blocks); i++)
-		if (blocks[i].interval)
-			sleepInterval = gcd(blocks[i].interval, sleepInterval);
+#ifdef INVERSED
+	for (j = LEN(blocks) - 1; j >= 0; j--)
+#else
+	for (j = 0; j < LEN(blocks); j++)
+#endif /* INVERSED */
+		if (blocks[j].interval)
+			sleepInterval = gcd(blocks[j].interval, sleepInterval);
 
 	unsigned long long int i = 0;
 	struct timespec sleepTime = {sleepInterval, 0};
 	struct timespec toSleep = sleepTime;
 
-	while (1) {
+	while (running) {
 		// Sleep for `sleepTime` even on being interrupted
 		if (nanosleep(&toSleep, &toSleep) == -1)
 			continue;
 
 		// Notify parent to update blocks
-		write(timerPipe[1], &i, sizeof(i));
+		write(timer[1], &i, sizeof(i));
 
 		// After sleep, reset timer and update counter
 		toSleep = sleepTime;
 		i += sleepInterval;
 	}
 
-	close(timerPipe[1]);
+	close(timer[1]);
 }
 
-void
+static void
 cleanup(void)
 {
 	int i;
 
-	close(epollFD);
-	close(signalFD);
-	close(timerPipe[0]);
-	close(timerPipe[1]);
 	for (i = 0; i < LEN(pipes); i++) {
 		close(pipes[i][0]);
 		close(pipes[i][1]);
 	}
+	close(epollFD);
+	close(signalFD);
+	close(timer[0]);
+	close(timer[1]);
 }
 
 int
