@@ -1,355 +1,343 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <time.h>
-#include <signal.h>
-#include <errno.h>
+#include <sys/epoll.h>
+#include <sys/signalfd.h>
 #include <X11/Xlib.h>
-#define LENGTH(X)	(sizeof(X) / sizeof (X[0]))
-#define CMDLENGTH		50
+#include <fcntl.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#define LEN(X) (sizeof(X) / sizeof(X[0]))
+#define POLL_INTERVAL	50
 
 typedef struct {
-//	char *icon;
-	char *command;
-	unsigned int interval;
-	unsigned int signal;
+	const char *command;
+	const unsigned int interval;
+	const unsigned int signal;
 } Block;
-
-void sighandler(int num);
-void buttonhandler(int sig, siginfo_t *si, void *ucontext);
-void replace(char *str, char old, char new);
-void remove_all(char *str, char to_remove);
-void getcmds(int time);
-#ifndef __OpenBSD__
-void getsigcmds(int signal);
-void setupsignals();
-void sighandler(int signum);
-#endif
-int getstatus(char *str, char *last);
-void setroot();
-void statusloop();
-void termhandler(int signum);
 
 #include "config.h"
 
+/* variables */
 static Display *dpy;
 static int screen;
 static Window root;
-static char statusbar[LENGTH(blocks)][CMDLENGTH] = {0};
-static char statusstr[2][256];
-static int statusContinue = 1;
-static void (*writestatus) () = setroot;
 
-//void ArrayReverese(int size)
-//{
-////	int Temp, Start, End;
-//	Start = 0;
-//	End = size -1
-//	while (Start < End) {
-//		Temp = a[Start];
-//		a[Start] = a[End];
-//		a[End] = Temp;
-//		Start++;
-//		End--;
-//	}
-////	int a, b, i, j;
-////	for(i = size-1, j = 0; i >= 0; i--, j++) {
-////		b[j] = a[i];
-////	}
-//}
+static char outputs[LEN(blocks)][CMDLENGTH + 2];
+static char status[2][LEN(blocks) * ((LEN(outputs[0]) - 1) + (LEN(delimiter) - 1)) + 1];
+static struct epoll_event event, events[LEN(blocks) + 2];
+static int signalFD, epollFD;			/* file descriptors */
+static int pipes[LEN(blocks)][2], timer[2];	/* pipes */
 
-void
-replace(char *str, char old, char new)
-{
-	for(char * c = str; *c; c++)
-		if(*c == old)
-			*c = new;
-}
+static int running = 1;
+static int printstdout = 0;
 
-/* the previous function looked nice but unfortunately it didnt work if
- * to_remove was in any position other than the last character theres probably
- * still a better way of doing this
- */
-void
-remove_all(char *str, char to_remove) {
-	char *read = str;
-	char *write = str;
-	do {
-		while (*read == to_remove) read++;
-		*write++ = *read;
-		read++;
-	} while (*(read-1));
-}
-
-int
+static int
 gcd(int a, int b)
 {
-	int temp;
+	int tmp;
 	while (b > 0) {
-		temp = a % b;
-
+		tmp = a % b;
 		a = b;
-		b = temp;
+		b = tmp;
 	}
 	return a;
 }
 
-/* opens process *cmd and stores output in *output */
 void
-getcmd(const Block *block, char *output)
+execBlock(int i, const char *button)
 {
-	if (block->signal) {
-		output[0] = block->signal;
-		output++;
-	}
-	char *cmd  = block->command;
-	FILE *cmdf = popen(cmd,"r");
-	if (!cmdf)
-		return;
-        //printf("failed to run: %s, %d\n", block->command, errno);
-	//}
-
-/* TODO decide whether its better to use the last value till next time or just
- * keep trying while the error was the interrupt his keeps trying to read if it
- * got nothing and the error was an interrupt could also just read to a
- * separate buffer and not move the data over if interrupted this way will take
- * longer trying to complete 1 thing but will get it done. The other way will
- * move on to keep going with everything and the part that failed to read will
- * be wrong till its updated again either way you have to save the data to a
- * temp buffer because when it fails it writes nothing and then then it gets
- * displayed before this finishes
- */
-	char tmpstr[CMDLENGTH] = "";
-	char * s;
-	int e;
-	do {
-		errno = 0;
-		s = fgets(tmpstr, CMDLENGTH-(strlen(delim)+1), cmdf);
-		e = errno;
-	} while (!s && e == EINTR);
-	pclose(cmdf);
-
-	//int i = strlen(block->icon);
-	//strcpy(output, block->icon);
-	strcpy(output, tmpstr);
-	remove_all(output, '\n');
-
-	int i = strlen(output);
-    	if ((i > 0 && block != &blocks[LENGTH(blocks) - 1])) {
-        	strcat(output, delim);
-	}
-	i+=strlen(delim);
-	output[i++] = '\0';
-}
-
-void
-getcmds(int time)
-{
-	const Block* current;
-	for (int i = 0; i < LENGTH(blocks); i++) {
-		current = blocks + i;
-		if ((current->interval != 0 && time % current->interval == 0) || time == -1) {
-			getcmd(current,statusbar[i]);
-		}
-	}
-}
-
-#ifndef __OpenBSD__
-void
-getsigcmds(int signal)
-{
-	const Block *current;
-	for (int i = 0; i < LENGTH(blocks); i++) {
-		current = blocks + i;
-		if (current->signal == signal)
-			getcmd(current,statusbar[i]);
+	if (fork() == 0) {
+		close(pipes[i][0]);
+		dup2(pipes[i][1], STDOUT_FILENO);
+		if (button)
+			setenv("BLOCK_BUTTON", button, 1);
+		execlp(shell, shell, "-c", blocks[i].command, NULL);
+		close(pipes[i][1]);
 	}
 }
 
 void
-setupsignals()
+execBlocks(unsigned long long int time)
 {
-	struct sigaction sa;
 	int i;
 
-	for (i = SIGRTMIN; i <= SIGRTMAX; i++)
-		signal(i, SIG_IGN);
-
-	for (i = 0; i < LENGTH(blocks); i++) {
-		if (blocks[i].signal > 0) {
-			signal(SIGRTMIN+blocks[i].signal, sighandler);
-			sigaddset(&sa.sa_mask, SIGRTMIN+blocks[i].signal);
-		}
-	}
-	sa.sa_sigaction = buttonhandler;
-	sa.sa_flags = SA_SIGINFO;
-	sigaction(SIGUSR1, &sa, NULL);
-	struct sigaction sigchld_action = {
-  		.sa_handler = SIG_DFL,
-  		.sa_flags = SA_NOCLDWAIT
-	};
-	sigaction(SIGCHLD, &sigchld_action, NULL);
-
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--)
+#else
+	for (i = 0; i < LEN(blocks); i++)
+#endif /* INVERSED */
+		if (time == 0 || (blocks[i].interval != 0 && time % blocks[i].interval == 0))
+			execBlock(i, NULL);
 }
-#endif
 
-int
-getstatus(char *str, char *last)
+static int
+getstatus(char *new, char *old)
 {
-	strcpy(last, str);
-	str[0] = '\0';
-	for(int i = 0; i < LENGTH(blocks); i++) {
-		strcat(str, statusbar[i]);
-        	if (i == LENGTH(blocks) - 1)
-			strcat(str, " ");
+	int i;
+	strcpy(old, new);
+	new[0] = '\0';
+
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--) {
+#else
+	for (i = 0; i < LEN(blocks); i++) {
+#endif /* INVERSED */
+
+#ifdef LEADING_DELIMITER
+		if (strlen(outputs[i]))
+#else
+		if (strlen(new) && strlen(outputs[i]))
+#endif
+			strcat(new, delimiter);
+		strcat(new, outputs[i]);
 	}
-	str[strlen(str)-1] = '\0';
-	return strcmp(str, last); /* 0 if they are the same */
+
+	return strcmp(new, old);
 }
 
 void
-setroot()
+updateBlock(int i)
 {
-	/* Only set root if text has changed. */
-	if (!getstatus(statusstr[0], statusstr[1]))
+	char buffer[LEN(outputs[0])];
+	char *output = outputs[i];
+	int bytesread = read(pipes[i][0], buffer, LEN(buffer));
+	buffer[bytesread - 1] = '\0';
+
+	if (bytesread == LEN(buffer)) { /* clear the pipe */
+		char ch;
+		while (read(pipes[i][0], &ch, 1) == 1 && ch != '\n');
+	} else if (bytesread == 1) {
+		output[0] = '\0';
 		return;
-	Display *d = XOpenDisplay(NULL);
+	}
 
-	if (d) dpy = d;
+	if (clickable && blocks[i].signal > 0) {
+		output[0] = blocks[i].signal;
+		output++;
+	}
 
+	strcpy(output, buffer);
+}
+
+static void
+setroot(void)
+{
+	/* Only set root if text has changed */
+	if (!getstatus(status[0], status[1]))
+		return;
+
+	if (printstdout) {
+		printf("%s\n", status[0]);
+		return;
+	}
+
+	if (!(dpy = XOpenDisplay(NULL))) {
+		fprintf(stderr, "dwmblocks: cannot open display");
+		exit(1);
+	}
 	screen = DefaultScreen(dpy);
 	root = RootWindow(dpy, screen);
-	XStoreName(dpy, root, statusstr[0]);
+	XStoreName(dpy, root, status[0]);
 	XCloseDisplay(dpy);
 }
 
 void
-pstdout()
+signalHandler()
 {
-	/* Only write out if text has changed. */
-	if (!getstatus(statusstr[0], statusstr[1]))
-		return;
-	printf("%s\n", statusstr[0]);
-	fflush(stdout);
-}
+	int i;
+	struct signalfd_siginfo info;
+	read(signalFD, &info, sizeof(info));
 
-
-void
-statusloop()
-{
-#ifndef __OpenBSD__
-	setupsignals();
-#endif
-	int i = 0;
-	// first figure out the default wait interval by finding the
-	// greatest common denominator of the intervals
-	//unsigned int interval = -1;
-	//for (int i = 0; i < LENGTH(blocks); i++) {
-        //	if (blocks[i].interval) {
-	//		interval = gcd(blocks[i].interval, interval);
-	//	}
-	//}
-	//unsigned int i = 0;
-	//int interrupted = 0;
-	//struct timespec sleeptime = {interval, 0};
-	//struct timespec tosleep = sleeptime;
-	getcmds(-1);
-
-	while(statusContinue) {
-		getcmds(i);
-		writestatus();
-		sleep(1.0);
-		i++;
-
-	/* sleep for tosleep (should be a sleeptime of interval seconds)
-	 * and put what was left if interrupted back into tosleep */
-        //interrupted = nanosleep(&tosleep, &tosleep);
-
-        /* if interrupted then just go sleep again for the remaining time */
-        //if (interrupted == -1) {
-        //    continue;
-	//}
-
-        /* if not interrupted then do the calling and writing */
-        //getcmds(i);
-        //writestatus();
-
-        /* then increment since its actually been a second
-	 * (plus the time it took the commands to run) */
-	//i++;
-
-        /* set the time to sleep back to the sleeptime of 1s */
-        //tosleep = sleeptime;
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--) {
+#else
+	for (i = 0; i < LEN(blocks); i++) {
+#endif /* INVERSED */
+		if (blocks[i].signal == info.ssi_signo - SIGRTMIN) {
+			char button[] = {'0' + info.ssi_int & 0xff, 0};
+			execBlock(i, button);
+			break;
+		}
 	}
+
+	/* clear the pipe after each poll to limit number of signals handled */
+	while (read(signalFD, &info, sizeof(info)) != -1);
 }
 
-#ifndef __OpenBSD__
-void
-sighandler(int signum)
+static void
+quit(int unused)
 {
-	getsigcmds(signum-SIGRTMIN);
-	writestatus();
+	running = 0;
+	//exit(0);
 }
 
-void
-buttonhandler(int sig, siginfo_t *si, void *ucontext)
+static void
+sigchld(int unused)
 {
-	char button[2] = {'0' + si->si_value.sival_int & 0xff, '\0'};
-	pid_t process_id = getpid();
-	sig = si->si_value.sival_int >> 8;
-	if (fork() == 0) {
-		const Block *current;
-		for (int i = 0; i < LENGTH(blocks); i++) {
-			current = blocks + i;
-			if (current->signal == sig) {
-				break;
+	struct sigaction sa;
+	sa.sa_handler = SIG_DFL;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_NOCLDWAIT;
+	sigaction(SIGCHLD, &sa, 0);
+	//if (signal(SIGCHLD, sigchld) == SIG_ERR) {
+	//	fprintf(stderr, "can't install SIGCHLD handler:");
+	//	exit(1);
+	//}
+	//while (0 < waitpid(-1, NULL, WNOHANG));
+}
+
+static void
+setup()
+{
+	int i;
+
+	epollFD = epoll_create(LEN(blocks) + 1);
+	event.events = EPOLLIN;
+
+	/* init pipes */
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--) {
+#else
+	for (i = 0; i < LEN(blocks); i++) {
+#endif /* INVERSED */
+		pipe(pipes[i]);
+		event.data.u32 = i;
+		epoll_ctl(epollFD, EPOLL_CTL_ADD, pipes[i][0], &event);
+	}
+
+	/* timer pipe */
+	pipe(timer);
+	event.data.u32 = LEN(blocks);
+	epoll_ctl(epollFD, EPOLL_CTL_ADD, timer[0], &event);
+
+	/* clean up any zombies immediately */
+	sigchld(0);
+
+	signal(SIGTERM, quit);
+	signal(SIGINT, quit);
+
+	// Handle block update signals
+	sigset_t sigset;
+	sigemptyset(&sigset);
+#ifdef INVERSED
+	for (i = LEN(blocks) - 1; i >= 0; i--)
+#else
+	for (i = 0; i < LEN(blocks); i++)
+#endif /* INVERSED */
+		if (blocks[i].signal > 0) {
+			sigaddset(&sigset, SIGRTMIN + blocks[i].signal);
+		}
+
+	signalFD = signalfd(-1, &sigset, 0);
+	fcntl(signalFD, F_SETFL, O_NONBLOCK);
+	sigprocmask(SIG_BLOCK, &sigset, NULL);
+	event.data.u32 = LEN(blocks) + 1;
+	epoll_ctl(epollFD, EPOLL_CTL_ADD, signalFD, &event);
+}
+
+static void
+statusloop(void)
+{
+	unsigned long long int j;
+	execBlocks(0);
+
+	while (running) {
+		int eventCount = epoll_wait(epollFD, events, LEN(events), POLL_INTERVAL / 10);
+
+		for (int i = 0; i < eventCount; i++) {
+			unsigned int id = events[i].data.u32;
+
+			if (id == LEN(blocks)) {
+				j = 0;
+				read(timer[0], &j, sizeof(j));
+				execBlocks(j);
+			} else if (id < LEN(blocks)) {
+				updateBlock(events[i].data.u32);
+			} else {
+				signalHandler();
 			}
 		}
-		char shcmd[1024];
-		sprintf(shcmd,"%s && kill -%d %d",current->command, current->signal+34,process_id);
-		//char *command[] = { "/bin/sh", "-c", shcmd, NULL };
-		char *command[] = { "/bin/dash", "-c", shcmd, NULL };
-		//char *command[] = { "/bin/env", shcmd, NULL };
-		setenv("BLOCK_BUTTON", button, 1);
-		setsid();
-		execvp(command[0], command);
-		exit(EXIT_SUCCESS);
+
+		if (eventCount)
+			setroot();
+
+		// Poll every `POLL_INTERVAL` milliseconds
+		struct timespec toSleep = {.tv_nsec = POLL_INTERVAL * 1000000UL};
+		nanosleep(&toSleep, &toSleep);
 	}
 }
 
-#endif
-
-void
-termhandler(int signum)
+static void
+timerloop()
 {
-	statusContinue = 0;
-	exit(0);
+	int j;
+	close(timer[0]);
+
+	unsigned int sleepInterval = -1;
+#ifdef INVERSED
+	for (j = LEN(blocks) - 1; j >= 0; j--)
+#else
+	for (j = 0; j < LEN(blocks); j++)
+#endif /* INVERSED */
+		if (blocks[j].interval)
+			sleepInterval = gcd(blocks[j].interval, sleepInterval);
+
+	unsigned long long int i = 0;
+	struct timespec sleepTime = {sleepInterval, 0};
+	struct timespec toSleep = sleepTime;
+
+	while (1) {
+		// Sleep for `sleepTime` even on being interrupted
+		if (nanosleep(&toSleep, &toSleep) == -1)
+			continue;
+
+		// Notify parent to update blocks
+		write(timer[1], &i, sizeof(i));
+
+		// After sleep, reset timer and update counter
+		toSleep = sleepTime;
+		i += sleepInterval;
+	}
+
+	close(timer[1]);
+}
+
+static void
+cleanup(void)
+{
+	int i;
+
+	for (i = 0; i < LEN(pipes); i++) {
+		close(pipes[i][0]);
+		close(pipes[i][1]);
+	}
+
+	close(epollFD); close(signalFD);
+	close(timer[0]);
+	close(timer[1]);
 }
 
 int
-main(int argc, char** argv)
+main(int argc, char *argv[])
 {
-	if (argc == 2 && !strcmp("-h", argv[1])) {
-		puts("dwmblocks:");
-		puts("\t-d <delimiter>\tUses a custom delimeter");
-		puts("\t-p\t\tPrints to stdout");
-		puts("\t-h\t\tShows this help");
-		exit(0);
-	} else if (argc != 1) {
-		puts("usage: dwmblocks [-h]");
-		exit(0);
-	}
-	for (int i = 0; i < argc; i++) {
-		if (!strcmp("-d",argv[i]))
-			delim = argv[++i];
-		else if (!strcmp("-p",argv[i]))
-			writestatus = pstdout;
+	if (argc == 2 && !strcmp("-p", argv[1]))
+		printstdout = 1;
+	else if (argc != 1) {
+		puts("usage: dwmblocks [-p]");
+		exit(1);
 	}
 
-	signal(SIGTERM, termhandler);
-	signal(SIGINT,  termhandler);
-	statusloop();
+	setup();
+
+	if (fork() == 0)
+		timerloop();
+	else
+		statusloop();
+
+	cleanup();
 
 	return 0;
 }
