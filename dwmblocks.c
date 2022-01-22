@@ -327,7 +327,7 @@ main(int argc, char *argv[])
 	if (argc == 2 && !strcmp("-d", argv[1]))
 		debug = 1;
 	else if (argc != 1) {
-		fprintf(stdout, "usage: dwmblocks [-d]");
+		puts("usage: dwmblocks [-d]");
 		exit(1);
 	}
 
