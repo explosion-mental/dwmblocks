@@ -163,7 +163,7 @@ signalHandler()
 		}
 	}
 
-	// Clear the pipe after each poll to limit number of signals handled
+	/* clear the pipe after each poll to limit number of signals handled */
 	while (read(signalFD, &info, sizeof(info)) != -1);
 }
 
@@ -238,8 +238,8 @@ setup()
 	epoll_ctl(epollFD, EPOLL_CTL_ADD, signalFD, &event);
 }
 
-void
-run(void)
+static void
+statusloop(void)
 {
 	unsigned long long int j;
 	execBlocks(0);
@@ -336,7 +336,7 @@ main(int argc, char *argv[])
 	if (fork() == 0)
 		timerloop();
 	else
-		run();
+		statusloop();
 
 	cleanup();
 
