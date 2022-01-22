@@ -1,4 +1,5 @@
-#define CMDLENGTH	50
+#define POLL_INTERVAL 50
+#define CMDLENGTH	60
 #define LEADING_DELIMITER
 #define INVERSED
 
@@ -6,7 +7,7 @@
 static const char delimiter[] = " ";
 
 /* default shell to use when running the commands */
-static const char *shell = "/bin/dash";
+static const char shell[] = "/bin/dash";
 
 /* 1 means clickable blocks */
 static const int clickable = 1;
@@ -16,7 +17,7 @@ static const Block blocks[] = {
 	{ "sb-clock",				30,		1},
 	{ "sb-disk",				9000,		2},
 	{ "sb-battery",				10,		3},
-	{ "sb-internet",			10,		4},
+	{ "sb-internet",			5,		4},
 	{ "sb-mailbox",				0,		5},
 	{ "sb-moonphase",			18000,		6},
 	{ "sb-forecast",			18000,		7},
@@ -40,7 +41,7 @@ static const Block blocks[] = {
 	{ "sb-sync",				0,		10},
 //	{ "sb-mpc",				0,		26},
 	{ "sb-music",				0,		11},
-	{ "sb-tasks",				10,		12},
+//	{ "sb-tasks",				10,		12},
 	{ "sb-notes",				0,		13},
 	{ "cat /tmp/recordingicon 2>/dev/null",	0,		14},
 //	{ "sb-count",				0,		21},

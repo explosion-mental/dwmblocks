@@ -10,8 +10,7 @@
 #include <wait.h>
 #include <unistd.h>
 
-#define POLL_INTERVAL 50
-#define LEN(arr) (sizeof(arr) / sizeof(arr[0]))
+#define LEN(X) (sizeof(X) / sizeof(X[0]))
 
 typedef struct {
 	const char *command;
@@ -25,14 +24,15 @@ static Display *dpy;
 static int screen;
 static Window root;
 
-static char outputs[LEN(blocks)][CMDLENGTH + 1];
+static char outputs[LEN(blocks)][CMDLENGTH + 2];
 static char statusBar[2][LEN(blocks) * ((LEN(outputs[0]) - 1) + (LEN(delimiter) - 1)) + 1];
-static struct epoll_event event, events[LEN(blocks) + 2];
-static int pipes[LEN(blocks)][2];
 
+static struct epoll_event event, events[LEN(blocks) + 2];
+static int signalFD, epollFD;
+
+/* pipes */
+static int pipes[LEN(blocks)][2];
 static int timer[2];
-static int signalFD;
-static int epollFD;
 
 static int running = 1;
 static int debug = 0;
@@ -55,7 +55,6 @@ execBlock(int i, const char *button)
 	if (fork() == 0) {
 		close(pipes[i][0]);
 		dup2(pipes[i][1], STDOUT_FILENO);
-
 		if (button)
 			setenv("BLOCK_BUTTON", button, 1);
 		execlp(shell, shell, "-c", blocks[i].command, NULL);
@@ -102,16 +101,15 @@ getStatus(char *new, char *old)
 void
 updateBlock(int i)
 {
-	char *output = outputs[i];
 	char buffer[LEN(outputs[0])];
-	int bytesRead = read(pipes[i][0], buffer, LEN(buffer));
-	buffer[bytesRead - 1] = '\0';
+	char *output = outputs[i];
+	int bytesread = read(pipes[i][0], buffer, LEN(buffer));
+	buffer[bytesread - 1] = '\0';
 
-	if (bytesRead == LEN(buffer)) {
-		// Clear the pipe
+	if (bytesread == LEN(buffer)) { /* clear the pipe */
 		char ch;
 		while (read(pipes[i][0], &ch, 1) == 1 && ch != '\n');
-	} else if (bytesRead == 1) {
+	} else if (bytesread == 1) {
 		output[0] = '\0';
 		return;
 	}
@@ -127,7 +125,7 @@ updateBlock(int i)
 static void
 setroot(void)
 {
-	// Only set root if text has changed
+	/* Only set root if text has changed */
 	if (!getStatus(statusBar[0], statusBar[1]))
 		return;
 
@@ -173,17 +171,22 @@ static void
 quit(int unused)
 {
 	running = 0;
-	exit(0);
+	//exit(0);
 }
 
 static void
 sigchld(int unused)
 {
-	if (signal(SIGCHLD, sigchld) == SIG_ERR) {
-		fprintf(stderr, "can't install SIGCHLD handler:");
-		exit(1);
-	}
-	while (0 < waitpid(-1, NULL, WNOHANG));
+	struct sigaction sa;
+	sa.sa_handler = SIG_DFL;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_NOCLDWAIT;
+	sigaction(SIGCHLD, &sa, 0);
+	//if (signal(SIGCHLD, sigchld) == SIG_ERR) {
+	//	fprintf(stderr, "can't install SIGCHLD handler:");
+	//	exit(1);
+	//}
+	//while (0 < waitpid(-1, NULL, WNOHANG));
 }
 
 static void
@@ -267,8 +270,8 @@ run(void)
 	}
 }
 
-void
-timerLoop()
+static void
+timerloop()
 {
 	int j;
 	close(timer[0]);
@@ -286,7 +289,7 @@ timerLoop()
 	struct timespec sleepTime = {sleepInterval, 0};
 	struct timespec toSleep = sleepTime;
 
-	while (running) {
+	while (1) {
 		// Sleep for `sleepTime` even on being interrupted
 		if (nanosleep(&toSleep, &toSleep) == -1)
 			continue;
@@ -311,6 +314,7 @@ cleanup(void)
 		close(pipes[i][0]);
 		close(pipes[i][1]);
 	}
+
 	close(epollFD);
 	close(signalFD);
 	close(timer[0]);
@@ -320,16 +324,17 @@ cleanup(void)
 int
 main(int argc, char *argv[])
 {
-	int i;
-
-	for (i = 0; i < argc; i++)
-		if (!strcmp("-d", argv[i]))
-			debug = 1;
+	if (argc == 2 && !strcmp("-d", argv[1]))
+		debug = 1;
+	else if (argc != 1) {
+		fprintf(stdout, "usage: dwmblocks [-d]");
+		exit(1);
+	}
 
 	setup();
 
 	if (fork() == 0)
-		timerLoop();
+		timerloop();
 	else
 		run();
 
