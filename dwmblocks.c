@@ -1,16 +1,16 @@
+#include <sys/epoll.h>
+#include <sys/signalfd.h>
 #include <X11/Xlib.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
-#include <sys/signalfd.h>
 #include <time.h>
-#include <wait.h>
 #include <unistd.h>
 
 #define LEN(X) (sizeof(X) / sizeof(X[0]))
+#define POLL_INTERVAL	50
 
 typedef struct {
 	const char *command;
@@ -20,22 +20,19 @@ typedef struct {
 
 #include "config.h"
 
+/* variables */
 static Display *dpy;
 static int screen;
 static Window root;
 
 static char outputs[LEN(blocks)][CMDLENGTH + 2];
-static char statusBar[2][LEN(blocks) * ((LEN(outputs[0]) - 1) + (LEN(delimiter) - 1)) + 1];
-
+static char status[2][LEN(blocks) * ((LEN(outputs[0]) - 1) + (LEN(delimiter) - 1)) + 1];
 static struct epoll_event event, events[LEN(blocks) + 2];
-static int signalFD, epollFD;
-
-/* pipes */
-static int pipes[LEN(blocks)][2];
-static int timer[2];
+static int signalFD, epollFD;			/* file descriptors */
+static int pipes[LEN(blocks)][2], timer[2];	/* pipes */
 
 static int running = 1;
-static int debug = 0;
+static int printstdout = 0;
 
 static int
 gcd(int a, int b)
@@ -66,6 +63,7 @@ void
 execBlocks(unsigned long long int time)
 {
 	int i;
+
 #ifdef INVERSED
 	for (i = LEN(blocks) - 1; i >= 0; i--)
 #else
@@ -75,8 +73,8 @@ execBlocks(unsigned long long int time)
 			execBlock(i, NULL);
 }
 
-int
-getStatus(char *new, char *old)
+static int
+getstatus(char *new, char *old)
 {
 	int i;
 	strcpy(old, new);
@@ -87,6 +85,7 @@ getStatus(char *new, char *old)
 #else
 	for (i = 0; i < LEN(blocks); i++) {
 #endif /* INVERSED */
+
 #ifdef LEADING_DELIMITER
 		if (strlen(outputs[i]))
 #else
@@ -95,6 +94,7 @@ getStatus(char *new, char *old)
 			strcat(new, delimiter);
 		strcat(new, outputs[i]);
 	}
+
 	return strcmp(new, old);
 }
 
@@ -126,11 +126,11 @@ static void
 setroot(void)
 {
 	/* Only set root if text has changed */
-	if (!getStatus(statusBar[0], statusBar[1]))
+	if (!getstatus(status[0], status[1]))
 		return;
 
-	if (debug) {
-		printf("%s\n", statusBar[0]);
+	if (printstdout) {
+		printf("%s\n", status[0]);
 		return;
 	}
 
@@ -140,7 +140,7 @@ setroot(void)
 	}
 	screen = DefaultScreen(dpy);
 	root = RootWindow(dpy, screen);
-	XStoreName(dpy, root, statusBar[0]);
+	XStoreName(dpy, root, status[0]);
 	XCloseDisplay(dpy);
 }
 
@@ -315,8 +315,7 @@ cleanup(void)
 		close(pipes[i][1]);
 	}
 
-	close(epollFD);
-	close(signalFD);
+	close(epollFD); close(signalFD);
 	close(timer[0]);
 	close(timer[1]);
 }
@@ -324,10 +323,10 @@ cleanup(void)
 int
 main(int argc, char *argv[])
 {
-	if (argc == 2 && !strcmp("-d", argv[1]))
-		debug = 1;
+	if (argc == 2 && !strcmp("-p", argv[1]))
+		printstdout = 1;
 	else if (argc != 1) {
-		puts("usage: dwmblocks [-d]");
+		puts("usage: dwmblocks [-p]");
 		exit(1);
 	}
 

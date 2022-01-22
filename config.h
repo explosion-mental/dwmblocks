@@ -1,6 +1,10 @@
-#define POLL_INTERVAL 50
+/* max commmand output length */
 #define CMDLENGTH	60
+
+/* comment to disable leading delimiter */
 #define LEADING_DELIMITER
+
+/* comment to have to blocks from last to first in `blocks` definition order */
 #define INVERSED
 
 /* delimiter between blocks */
