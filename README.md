@@ -52,4 +52,3 @@ of this using the `$BLOCK_BUTTON` variable.
 For this feature to work, you need the appropriate patch in dwm as well. See
 [here](https://dwm.suckless.org/patches/statuscmd/).
 Credit for those patches goes to Daniel Bylinka (daniel.bylinka@gmail.com).
-
