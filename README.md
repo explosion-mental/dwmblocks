@@ -2,6 +2,12 @@
 
 Modular status bar for dwm written in c.
 
+
+**DEPRECATED** I don't use this program anymore, [my build of
+dwm](https://github.com/explosion-mental/Dwm) already supports handling blocks
+async (no external programs needed).
+
+
 ## My build
 Very little modifications:
 - Now blocks doesn't dissapear on fast scrolling
